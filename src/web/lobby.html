@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lobby – OFC Pineapple</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#0f1115; color:#e7e8ea; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+    .card { width:min(520px, 92vw); background:#131827; border:1px solid #283048; border-radius:14px; padding:22px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+    h1 { margin:0 0 14px; font-size:20px; font-weight:700; }
+    label { display:block; font-size:13px; color:#9aa3b2; margin:12px 0 6px; }
+    input[type=text] { width:100%; padding:12px 14px; border-radius:10px; border:1px solid #2a3244; background:#0f1526; color:#e7e8ea; }
+    .row { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+    button { flex:1; padding:12px 14px; border-radius:10px; border:1px solid #2a3244; background:#1f2a44; color:#e7e8ea; cursor:pointer; }
+    button:hover { border-color:#3b455f; }
+    .muted { color:#9aa3b2; font-size:12px; margin-top:10px; }
+    .ok { color:#7ee787; font-size:13px; margin-top:8px; }
+    .err { color:#ff6b6b; font-size:13px; margin-top:8px; }
+    .pill { display:inline-block; padding:2px 8px; background:#1b2030; border:1px solid #2a3244; border-radius:999px; color:#b7c1d6; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Lobby</h1>
+    <div class="muted">Status: <span id="conn" class="pill">connecting…</span></div>
+
+    <label>Your name</label>
+    <input id="name" type="text" placeholder="Player" />
+
+    <div class="row">
+      <button id="create">Create Lobby</button>
+    </div>
+
+    <label>Join a lobby</label>
+    <div class="row">
+      <input id="room" type="text" placeholder="Room code (e.g. ABC123)" style="flex:2" />
+      <button id="join" style="flex:1">Join</button>
+    </div>
+
+    <div id="msg" class="muted"></div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const token = localStorage.getItem('ofc_jwt');
+    if (!token) { window.location.href = '/auth/phone.html'; }
+
+    let socket = io("/", { auth: { token } });
+
+    $('conn').textContent = 'connecting…';
+    socket.on('connect', () => $('conn').textContent = 'connected');
+    socket.on('disconnect', () => $('conn').textContent = 'disconnected');
+    socket.on("error:msg", (e)=> showErr(e?.message || 'Error'));
+
+    function showErr(t){ $('msg').className='err'; $('msg').textContent=t; }
+    function showOk(t){ $('msg').className='ok'; $('msg').textContent=t; }
+
+    // Create → wait for room:create → join → go to play
+    $('create').onclick = () => {
+      const name = ($('name').value || 'Player').trim();
+      if (!name) return showErr('Enter a name');
+      socket.emit("room:create");
+      socket.once("room:create", ({roomId}) => {
+        socket.emit("room:join", { roomId, name });
+        showOk(`Created ${roomId}. Joining…`);
+        setTimeout(()=> { window.location.href = `/play.html?room=${encodeURIComponent(roomId)}&name=${encodeURIComponent(name)}`; }, 200);
+      });
+    };
+
+    // Join existing
+    $('join').onclick = () => {
+      const roomId = ($('room').value || '').trim();
+      const name = ($('name').value || 'Player').trim();
+      if (!roomId) return showErr('Enter a room code');
+      socket.emit("room:join", { roomId, name });
+      showOk(`Joining ${roomId}…`);
+      setTimeout(()=> { window.location.href = `/play.html?room=${encodeURIComponent(roomId)}&name=${encodeURIComponent(name)}`; }, 200);
+    };
+  </script>
+</body>
+</html>

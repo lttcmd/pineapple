@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Play – OFC Pineapple</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0f1115; --fg:#e7e8ea; --muted:#9aa3b2; --accent:#7ee787; --warn:#ffb86b; --drop:#212636; }
+    body { margin:12px; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    h2 { margin: 6px 0 10px; }
+    .topbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+    .pill { padding:2px 8px; background:#1b2030; border:1px solid #2a3244; border-radius:999px; color:#b7c1d6; }
+    .muted { color:#9aa3b2; }
+    button { background:#23293a; color:#e7e8ea; border:1px solid #2a3244; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    button:hover { border-color:#3b455f; }
+    button[disabled] { opacity:.5; cursor:not-allowed; }
+    .grid { display:grid; grid-template-columns: 1fr 360px; gap:12px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+    /* Board */
+    .board { display:grid; grid-template-columns: 1fr; gap:10px; }
+    .zone { background:var(--drop); border:1px dashed #39415a; border-radius:10px; padding:8px; min-height:64px; }
+    .zone h4 { margin:0 0 6px; color:#b7c1d6; font-weight:600; font-size:14px; display:flex; justify-content:space-between; }
+    .rowline { display:flex; gap:6px; flex-wrap:wrap; min-height:48px; }
+    .subcap { color:#8ea2c6; font-size:12px; margin-bottom:4px; }
+    .zone.dragover { outline:2px solid var(--accent); outline-offset:0; }
+
+    /* Hand & Card */
+    .hand { display:flex; gap:8px; flex-wrap:wrap; }
+    .card {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:48px; height:64px; border-radius:6px;
+      background:linear-gradient(180deg,#22283a,#1b2031);
+      border:1px solid #313b55; user-select:none; cursor:grab;
+      font-weight:700; font-size:1.05rem;
+      transition: box-shadow .2s ease;
+    }
+    .card:active { cursor:grabbing; }
+    .newcard { box-shadow: 0 0 0 2px rgba(126,231,135,.4), 0 0 12px rgba(126,231,135,.35) inset; }
+
+    /* Suit colors */
+    .card.hearts   { color: #ff4d4d; }
+    .card.diamonds { color: #68a0ff; }
+    .card.clubs    { color: #66d06f; }
+    .card.spades   { color: #e7e8ea; }
+
+    /* Right column */
+    #log { white-space:pre-wrap; background:#0b0e17; border:1px solid #2a3244; border-radius:10px; padding:10px; min-height:120px; color:#b9f6ca; }
+    .small { font-size:12px; color:#b7c1d6; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border-bottom:1px solid #2a3244; padding:6px; text-align:left; vertical-align:top; }
+    th { color:#9fb0d1; font-weight:600; }
+    .reveal-board { margin:6px 0 10px; }
+    .rubric { color:#a9b7d6; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span id="conn" class="pill">connecting…</span>
+    <span>Room:</span> <span id="roomPill" class="pill">—</span>
+    <span>Phase:</span> <span id="phase" class="pill">—</span>
+    <button id="start">Start Round</button>
+    <button id="ready" disabled>Send Batch + Ready</button>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="board">
+        <div id="zoneTop" class="zone" data-row="top">
+          <h4>Top <span class="muted">limit 3</span></h4>
+          <div class="subcap">Committed</div>
+          <div class="rowline committed" data-limit="3"></div>
+          <div class="subcap">Staged</div>
+          <div class="rowline staged" data-limit="3"></div>
+        </div>
+        <div id="zoneMiddle" class="zone" data-row="middle">
+          <h4>Middle <span class="muted">limit 5</span></h4>
+          <div class="subcap">Committed</div>
+          <div class="rowline committed" data-limit="5"></div>
+          <div class="subcap">Staged</div>
+          <div class="rowline staged" data-limit="5"></div>
+        </div>
+        <div id="zoneBottom" class="zone" data-row="bottom">
+          <h4>Bottom <span class="muted">limit 5</span></h4>
+          <div class="subcap">Committed</div>
+          <div class="rowline committed" data-limit="5"></div>
+          <div class="subcap">Staged</div>
+          <div class="rowline staged" data-limit="5"></div>
+        </div>
+        <div id="zoneDiscard" class="zone" data-discard="true">
+          <h4>Discard <span class="muted">(auto each pineapple round)</span></h4>
+          <div class="subcap">Committed</div>
+          <div class="rowline committed" id="discardCommitted"></div>
+          <div class="subcap">Staged</div>
+          <div class="rowline staged" id="discardStaged"></div>
+        </div>
+      </div>
+
+      <h4 style="margin:12px 0 6px;">Your Hand</h4>
+      <div id="hand" class="hand"></div>
+    </div>
+
+    <div>
+      <fieldset style="border:1px solid #2a3244; border-radius:10px; padding:10px;">
+        <legend>Reveal & Scores</legend>
+        <div class="small">Current totals (client-side):</div>
+        <table id="scoreboard">
+          <thead><tr><th>Player</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="revealPanel" class="small" style="margin-top:8px;">—</div>
+      </fieldset>
+
+      <fieldset style="border:1px solid #2a3244; border-radius:10px; padding:10px; margin-top:12px;">
+        <legend>Log</legend>
+        <pre id="log"></pre>
+      </fieldset>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    // --- utilities
+    const $ = id => document.getElementById(id);
+    const qs = new URLSearchParams(location.search);
+    const roomId = qs.get('room') || '';
+    const myName = qs.get('name') || 'Player';
+    if (!roomId) { alert('Missing room code. Going back to lobby.'); location.href='/lobby.html'; }
+
+    const token = localStorage.getItem('ofc_jwt');
+    if (!token) { location.href = '/auth/phone.html'; }
+
+    // --- state
+    let socket = null, myUserId = null;
+    let currentPhase = 'lobby';
+    let myHand = [], myBoard = { top:[], middle:[], bottom:[] }, myDiscards = [];
+    let staged = { placements:[], discard:null };
+    let lastBatch = [];
+    const totals = new Map();
+
+    // --- rendering helpers
+    function suitClass(s){ return s==='h'?'hearts':s==='d'?'diamonds':s==='c'?'clubs':'spades'; }
+    function suitSymbol(s){ return s==='h'?'♥':s==='d'?'♦':s==='c'?'♣':'♠'; }
+
+    function cardEl(code, isNew=false){
+      const rank = code.slice(0,-1), suit = code.slice(-1);
+      const el = document.createElement('div');
+      el.className = `card ${suitClass(suit)} ${isNew?'newcard':''}`;
+      el.textContent = `${rank}${suitSymbol(suit)}`;
+      el.draggable = true;
+      el.addEventListener('dragstart', (e)=> {
+        e.dataTransfer.setData('text/plain', code);
+        e.dataTransfer.dropEffect = 'move';
+      });
+      return el;
+    }
+
+    function renderHand() {
+      const wrap = $('hand'); wrap.innerHTML = '';
+      myHand.forEach(c => wrap.appendChild(cardEl(c, lastBatch.includes(c))));
+    }
+    function renderRow(zoneId, committedCards, stagedCards) {
+      const zone = $(zoneId), cWrap = zone.querySelector('.committed'), sWrap = zone.querySelector('.staged');
+      cWrap.innerHTML = ''; sWrap.innerHTML = '';
+      committedCards.forEach(c => cWrap.appendChild(cardEl(c)));
+      stagedCards.forEach(c => sWrap.appendChild(cardEl(c)));
+    }
+    function getStagedByRow(row){ return staged.placements.filter(x=>x.row===row).map(x=>x.card); }
+    function refreshBoard(){
+      renderRow('zoneTop', myBoard.top, getStagedByRow('top'));
+      renderRow('zoneMiddle', myBoard.middle, getStagedByRow('middle'));
+      renderRow('zoneBottom', myBoard.bottom, getStagedByRow('bottom'));
+      const dc = $('discardCommitted'); dc.innerHTML=''; myDiscards.forEach(c => dc.appendChild(cardEl(c)));
+      const ds = $('discardStaged'); ds.innerHTML=''; if (staged.discard) ds.appendChild(cardEl(staged.discard));
+      $('ready').disabled = !canSet();
+    }
+
+    // drop targets
+    function installDrop(zoneId){
+      const zone = $(zoneId);
+      zone.addEventListener('dragover', (e)=>{ e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', ()=> zone.classList.remove('dragover'));
+      zone.addEventListener('drop', (e)=>{
+        e.preventDefault(); zone.classList.remove('dragover');
+        const code = e.dataTransfer.getData('text/plain');
+        if (!code) return;
+
+        const isDiscard = zone.dataset.discard === 'true';
+        if (currentPhase === 'round' && !lastBatch.includes(code)) {
+          alert('This step: only the 3 new cards can be used.'); return;
+        }
+
+        if (isDiscard) {
+          if (staged.discard) return alert('Discard already staged');
+          if (!myHand.includes(code)) return;
+          myHand = myHand.filter(c => c!==code);
+          staged.discard = code;
+          renderHand(); refreshBoard(); return;
+        }
+
+        const row = zone.dataset.row;
+        if (!myHand.includes(code)) return;
+        const limit = row==='top'?3:5;
+        const current = myBoard[row].length + getStagedByRow(row).length;
+        if (current >= limit) return alert(`${row} full`);
+
+        myHand = myHand.filter(c => c!==code);
+        staged.placements.push({ row, card: code });
+        renderHand(); refreshBoard();
+      });
+    }
+    ['zoneTop','zoneMiddle','zoneBottom','zoneDiscard'].forEach(installDrop);
+
+    // batch validity
+    function canSet(){
+      if (currentPhase === 'initial-set') {
+        // must place all 5 dealt initially → we simply require empty hand after first deal
+        // but safer: allow if no cards from first batch remain in hand
+        return myHand.length === 0 || (myBoard.top.length + myBoard.middle.length + myBoard.bottom.length) >= 5;
+      }
+      if (currentPhase === 'round') {
+        const placedFromBatch = staged.placements.filter(p => lastBatch.includes(p.card)).length;
+        return placedFromBatch === 2; // discard auto if missing
+      }
+      return false;
+    }
+
+    // buttons
+    $('start').onclick = () => {
+      socket.emit("round:start", { roomId });
+    };
+ $('ready').onclick = () => {
+  if (!socket) return alert('Connect first');
+
+  if (currentPhase === 'round') {
+    // must place exactly 2 of the 3 new cards; leftover auto-discarded
+    const placedFromBatch = staged.placements
+      .filter(p => lastBatch.includes(p.card))
+      .map(p => p.card);
+
+    if (!staged.discard) {
+      const leftover = lastBatch.filter(c => !placedFromBatch.includes(c));
+      if (leftover.length !== 1) {
+        return alert('Place exactly 2 of the 3 new cards.');
+      }
+      const toDiscard = leftover[0];
+      const idx = myHand.indexOf(toDiscard);
+      if (idx !== -1) myHand.splice(idx, 1);
+      staged.discard = toDiscard;
+    }
+  }
+
+  // send to server
+  socket.emit("action:ready", {
+    roomId,
+    placements: staged.placements,
+    discard: staged.discard
+  });
+
+  // optimistic commit
+  for (const p of staged.placements) myBoard[p.row].push(p.card);
+  if (staged.discard) myDiscards.push(staged.discard);
+
+  // IMPORTANT: clear the current 3-card batch only AFTER committing
+  lastBatch = [];
+
+  // reset staging and refresh UI
+  staged = { placements: [], discard: null };
+  renderHand();
+  refreshBoard();
+};
+
+    // scoreboard / reveal
+    function renderScoreboard(names) {
+      const tbody = $('scoreboard').querySelector('tbody'); tbody.innerHTML='';
+      [...totals.entries()].sort((a,b)=>b[1]-a[1]).forEach(([uid,score])=>{
+        const tr=document.createElement('tr'); const tdN=document.createElement('td'); const tdS=document.createElement('td');
+        tdN.textContent = names.get(uid) || uid.slice(0,8); tdS.textContent = String(score);
+        tr.appendChild(tdN); tr.appendChild(tdS); tbody.appendChild(tr);
+      });
+    }
+    function tinyCardsDiv(cards){ const d=document.createElement('div'); cards.forEach(c=>d.appendChild(cardEl(c))); return d; }
+    function boardBlock(title, board, valid, reason){
+      const wrap=document.createElement('div'); wrap.className='reveal-board';
+      const h=document.createElement('div'); h.innerHTML = `<strong>${title}</strong> ${valid?'':`<span class="rubric">[FOUL: ${reason}]</span>`}`; wrap.appendChild(h);
+      const tbl=document.createElement('table'); const tb=document.createElement('tbody');
+      const mk=(label,arr)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${label}</td><td></td>`; tr.children[1].appendChild(tinyCardsDiv(arr)); tb.appendChild(tr); };
+      mk('Top',board.top); mk('Middle',board.middle); mk('Bottom',board.bottom);
+      tbl.appendChild(tb); wrap.appendChild(tbl); return wrap;
+    }
+    function renderRevealPanel(meId, payload){
+      const names = new Map(); for (const b of payload.boards) names.set(b.userId,b.name);
+      // roll totals
+      for (const [uid,pts] of Object.entries(payload.results||{})) totals.set(uid,(totals.get(uid)||0)+pts);
+      renderScoreboard(names);
+
+      const panel = $('revealPanel'); panel.innerHTML='';
+      // boards (mine first)
+      [...payload.boards].sort((a,b)=>a.userId===meId?-1:b.userId===meId?1:0).forEach(b=>{
+        panel.appendChild(boardBlock(b.name,b.board,b.valid,b.reason));
+      });
+
+      // my pairwise
+      const myPairs = (payload.pairwise||[]).filter(p=>p.aUserId===meId||p.bUserId===meId);
+      if (myPairs.length){
+        const head=document.createElement('div'); head.innerHTML='<div style="margin-top:10px;"><strong>Score breakdown</strong></div>'; panel.appendChild(head);
+      }
+      myPairs.forEach(p=>{
+        const mine = p.aUserId===meId ? p.a : p.b;
+        const opp  = p.aUserId===meId ? p.b : p.a;
+        const oppId= p.aUserId===meId ? p.bUserId : p.aUserId;
+        const sec=document.createElement('div');
+        sec.innerHTML = `
+          <div style="margin-top:6px;margin-bottom:4px;"><strong>Vs ${names.get(oppId) || oppId.slice(0,8)}</strong></div>
+          <table>
+            <thead><tr><th>Line</th><th>Points</th></tr></thead>
+            <tbody>
+              <tr><td>Top</td><td>${mine.lines.top>0?'+':''}${mine.lines.top}</td></tr>
+              <tr><td>Middle</td><td>${mine.lines.middle>0?'+':''}${mine.lines.middle}</td></tr>
+              <tr><td>Bottom</td><td>${mine.lines.bottom>0?'+':''}${mine.lines.bottom}</td></tr>
+              <tr><td>Scoop</td><td>${mine.scoop>0?'+':''}${mine.scoop}</td></tr>
+              <tr><td>Royalties</td><td>${mine.royalties>0?'+':''}${mine.royalties}</td></tr>
+              <tr><td><strong>Total</strong></td><td><strong>${mine.total>0?'+':''}${mine.total}</strong></td></tr>
+            </tbody>
+          </table>`;
+        panel.appendChild(sec);
+      });
+    }
+
+    // socket
+    function setPhase(p){ currentPhase=p||'—'; $('phase').textContent=currentPhase; $('ready').disabled=!canSet(); }
+    function log(m){ $('log').textContent += m + "\n"; }
+
+    socket = io("/", { auth:{ token } });
+    socket.on('connect', ()=>{
+      $('conn').textContent='connected';
+      $('roomPill').textContent = roomId;
+      // (re)join room with myName
+      socket.emit("room:join", { roomId, name: myName });
+    });
+    socket.on('disconnect', ()=> $('conn').textContent='disconnected');
+    socket.on("auth:ok", (x)=>{ myUserId = x?.userId || myUserId; });
+
+    socket.on("room:state", (s)=>{ setPhase(s.phase); log("STATE\n"+JSON.stringify(s,null,2)); });
+    socket.on("round:start", ({round})=>{
+      myBoard={top:[],middle:[],bottom:[]}; myDiscards=[]; staged={placements:[],discard:null}; lastBatch=[];
+      $('revealPanel').textContent='—'; renderHand(); refreshBoard(); log("START round "+round);
+    });
+    socket.on("round:deal", ({cards})=>{
+      lastBatch = cards.slice(); myHand = myHand.concat(cards); renderHand(); $('ready').disabled=!canSet(); log("DEAL "+JSON.stringify(cards));
+      // remove "new" glow after a moment
+    });
+    socket.on("round:reveal", (payload)=>{
+      log("REVEAL\n"+JSON.stringify(payload,null,2));
+      if (myUserId) renderRevealPanel(myUserId, payload);
+      // reset staged so next hand starts clean
+      staged={placements:[],discard:null}; $('ready').disabled=true;
+    });
+    socket.on("error:msg", (e)=> log("ERROR "+e.message));
+  </script>
+</body>
+</html>

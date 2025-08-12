@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>OFC Pineapple – Drag & Drop Board</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0f1115; --fg:#e7e8ea; --muted:#9aa3b2; --accent:#7ee787; --warn:#ffb86b; --drop:#212636; }
+    body { margin:16px; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    h2 { margin: 8px 0 16px; }
+    fieldset { border:1px solid #2a3244; padding:12px; margin-bottom:12px; border-radius:10px; }
+    legend { color:var(--muted); }
+    label { display:inline-block; min-width:84px; color:var(--muted); }
+    input[type=text] { background:#141825; color:var(--fg); border:1px solid #2a3244; border-radius:8px; padding:8px; width:380px; }
+    button { background:#23293a; color:var(--fg); border:1px solid #2a3244; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    button:hover { border-color:#3b455f; }
+    .row { display:flex; gap:8px; align-items:center; margin:6px 0; flex-wrap:wrap; }
+    .pill { padding:2px 8px; background:#1b2030; border:1px solid #2a3244; border-radius:999px; color:#b7c1d6; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    /* Board layout */
+    .board { display:grid; grid-template-columns: 1fr; gap:10px; }
+    .zone { background:var(--drop); border:1px dashed #39415a; border-radius:10px; padding:8px; min-height:64px; }
+    .zone h4 { margin:0 0 6px; color:#b7c1d6; font-weight:600; font-size:14px; display:flex; justify-content:space-between; }
+    .rowline { display:flex; gap:6px; flex-wrap:wrap; min-height:48px; }
+    .subcap { color:#8ea2c6; font-size:12px; margin-bottom:4px; }
+    .zone.dragover { outline:2px solid var(--accent); outline-offset:0; }
+
+    /* Hand & Card */
+    .hand { display:flex; gap:8px; flex-wrap:wrap; }
+    .card {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:48px; height:64px;
+      border-radius:6px;
+      background:linear-gradient(180deg,#22283a,#1b2031);
+      border:1px solid #313b55;
+      user-select:none;
+      cursor:grab;
+      font-weight:700;
+      font-size:1.05rem;
+    }
+    .card:active { cursor:grabbing; }
+
+    /* Suit colors (per user request) */
+    .card.hearts   { color: #ff4d4d; }   /* red */
+    .card.diamonds { color: #68a0ff; }   /* blue */
+    .card.clubs    { color: #66d06f; }   /* green */
+    .card.spades   { color: #e7e8ea; }   /* black-ish for contrast on dark bg */
+
+    /* Discard bin */
+    .discard { background:#2a1f24; border-color:#553143; }
+    .discard.dragover { outline:2px solid var(--warn); }
+
+    /* Right column & tables */
+    .grid { display:grid; grid-template-columns: 1fr 380px; gap:12px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+    #log { white-space:pre-wrap; background:#0b0e17; border:1px solid #2a3244; border-radius:10px; padding:10px; min-height:140px; color:#b9f6ca; }
+    .small { font-size:12px; color:#b7c1d6; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border-bottom:1px solid #2a3244; padding:6px; text-align:left; vertical-align:top; }
+    th { color:#9fb0d1; font-weight:600; }
+    .reveal-board { margin:6px 0 10px; }
+    .rubric { color:#a9b7d6; }
+  </style>
+</head>
+<body>
+  <h2>OFC Pineapple – Drag & Drop Board</h2>
+
+  <div class="row">
+    <span>Connection:</span> <span id="conn" class="pill">disconnected</span>
+    <span>Phase:</span> <span id="phase" class="pill">—</span>
+    <span>Room:</span> <span id="roomLabel" class="pill">—</span>
+  </div>
+
+  <!-- Auth -->
+  <fieldset>
+    <legend>1) Get a JWT (dev OTP)</legend>
+    <div class="row">
+      <label>Phone</label><input id="phone" type="text" placeholder="+61000000000" />
+      <button id="sendOtp">Send OTP</button>
+    </div>
+    <div class="row">
+      <label>Code</label><input id="otp" type="text" placeholder="123456" />
+      <button id="verifyOtp">Verify → Get JWT</button>
+    </div>
+    <div class="row">
+      <label>JWT</label><input id="token" type="text" class="mono" placeholder="Paste token here" />
+      <button id="connect">Connect</button>
+    </div>
+  </fieldset>
+
+  <!-- Room -->
+  <fieldset>
+    <legend>2) Room</legend>
+    <div class="row">
+      <button id="create">Create Room</button>
+      <label>ROOMID</label><input id="room" type="text" class="mono" placeholder="ABC123" />
+      <label style="min-width:60px;">Name</label><input id="name" type="text" placeholder="Player" style="width:200px;" />
+      <button id="join">Join Room</button>
+      <button id="start">Start Round</button>
+    </div>
+  </fieldset>
+
+  <div class="grid">
+    <div>
+      <fieldset>
+        <legend>3) Board</legend>
+        <div class="board">
+          <div id="zoneTop" class="zone" data-row="top">
+            <h4>Top <span class="muted">limit 3</span></h4>
+            <div class="subcap">Committed</div>
+            <div class="rowline committed" data-limit="3"></div>
+            <div class="subcap">Staged</div>
+            <div class="rowline staged" data-limit="3"></div>
+          </div>
+
+          <div id="zoneMiddle" class="zone" data-row="middle">
+            <h4>Middle <span class="muted">limit 5</span></h4>
+            <div class="subcap">Committed</div>
+            <div class="rowline committed" data-limit="5"></div>
+            <div class="subcap">Staged</div>
+            <div class="rowline staged" data-limit="5"></div>
+          </div>
+
+          <div id="zoneBottom" class="zone" data-row="bottom">
+            <h4>Bottom <span class="muted">limit 5</span></h4>
+            <div class="subcap">Committed</div>
+            <div class="rowline committed" data-limit="5"></div>
+            <div class="subcap">Staged</div>
+            <div class="rowline staged" data-limit="5"></div>
+          </div>
+
+          <div id="zoneDiscard" class="zone" data-discard="true">
+            <h4>Discard <span class="muted">(auto each pineapple round)</span></h4>
+            <div class="subcap">Committed</div>
+            <div class="rowline committed" data-limit="99" id="discardCommitted"></div>
+            <div class="subcap">Staged</div>
+            <div class="rowline staged" data-limit="1" id="discardStaged"></div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>4) Your Hand</legend>
+        <div id="hand" class="hand"></div>
+      </fieldset>
+
+      <div class="row">
+        <button id="clearStaged">Clear Staged</button>
+        <button id="ready">Send Batch + Ready</button>
+        <span class="muted">Staged: <span id="stagedTxt" class="mono">—</span></span>
+      </div>
+    </div>
+
+    <div>
+      <fieldset>
+        <legend>Reveal & Scores</legend>
+        <div class="small">Current totals (client-side):</div>
+        <table id="scoreboard">
+          <thead><tr><th>Player</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="revealPanel" class="small" style="margin-top:8px;">—</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Log</legend>
+        <pre id="log"></pre>
+      </fieldset>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    // ---------- State ----------
+    let socket = null;
+    let myUserId = null;
+
+    let myHand = [];
+    let myBoard = { top: [], middle: [], bottom: [] };
+    let myDiscards = [];
+    let staged  = { placements: [], discard: null };
+    let placedCounts = { top:0, middle:0, bottom:0 };
+
+    let currentPhase = 'lobby';
+    let lastBatch = [];   // newest deal (5 then 3)
+    const totals = new Map(); // running totals by userId (client-side)
+
+    const $ = (id) => document.getElementById(id);
+    const log = (m) => { $('log').textContent += m + "\\n"; };
+    const setConn = (t) => $('conn').textContent = t;
+    const setPhase = (t) => { currentPhase = t || '—'; $('phase').textContent = currentPhase; };
+    const setRoomLabel = (t) => $('roomLabel').textContent = t || '—';
+
+    // ---------- Suit helpers ----------
+    function suitClass(s) {
+      if (s === 'h') return 'hearts';
+      if (s === 'd') return 'diamonds';
+      if (s === 'c') return 'clubs';
+      return 'spades';
+    }
+    function suitSymbol(s) {
+      if (s === 'h') return '♥';
+      if (s === 'd') return '♦';
+      if (s === 'c') return '♣';
+      return '♠';
+    }
+
+    // ---------- Render a single card ----------
+    function cardEl(code) {
+      const rank = code.slice(0, -1);
+      const suit = code.slice(-1); // h,d,c,s
+
+      const el = document.createElement('div');
+      el.className = `card ${suitClass(suit)}`;
+      el.textContent = `${rank}${suitSymbol(suit)}`;
+      el.draggable = true;
+
+      el.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', code);
+        e.dataTransfer.dropEffect = 'move';
+      });
+
+      return el;
+    }
+
+    // ---------- Renderers ----------
+    function renderHand() {
+      const wrap = $('hand'); wrap.innerHTML = '';
+      myHand.forEach(c => wrap.appendChild(cardEl(c)));
+    }
+
+    function renderRow(zoneId, committedCards, stagedCards) {
+      const zone = $(zoneId);
+      const cWrap = zone.querySelector('.committed');
+      const sWrap = zone.querySelector('.staged');
+      cWrap.innerHTML = '';
+      sWrap.innerHTML = '';
+      committedCards.forEach(c => cWrap.appendChild(cardEl(c)));
+      stagedCards.forEach(c => sWrap.appendChild(cardEl(c)));
+    }
+
+    function getStagedByRow(row) {
+      return staged.placements.filter(x => x.row === row).map(x => x.card);
+    }
+
+    function refreshBoard() {
+      renderRow('zoneTop',    myBoard.top,    getStagedByRow('top'));
+      renderRow('zoneMiddle', myBoard.middle, getStagedByRow('middle'));
+      renderRow('zoneBottom', myBoard.bottom, getStagedByRow('bottom'));
+      // discards
+      const dc = $('discardCommitted'); dc.innerHTML = '';
+      myDiscards.forEach(c => dc.appendChild(cardEl(c)));
+      const ds = $('discardStaged'); ds.innerHTML = '';
+      if (staged.discard) ds.appendChild(cardEl(staged.discard));
+
+      $('stagedTxt').textContent =
+        [...staged.placements.map(x => `${x.card}->${x.row}`), staged.discard ? `discard:${staged.discard}` : null]
+        .filter(Boolean).join(' ') || '—';
+    }
+
+    // ---------- Drag & drop ----------
+    function installDrop(zoneId) {
+      const zone = $(zoneId);
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault(); zone.classList.remove('dragover');
+        const code = e.dataTransfer.getData('text/plain');
+        if (!code) return;
+
+        const isDiscard = zone.dataset.discard === 'true';
+
+        // During pineapple rounds: only place/discard from the latest 3
+        if (currentPhase === 'round' && !lastBatch.includes(code)) {
+          alert('This step: only the 3 new cards can be used.');
+          return;
+        }
+
+        if (isDiscard) {
+          if (staged.discard) { alert('Discard already staged'); return; }
+          if (!myHand.includes(code)) return;
+          myHand = myHand.filter(c => c !== code);
+          staged.discard = code;
+          renderHand(); refreshBoard(); return;
+        }
+
+        const row = zone.dataset.row;
+        if (!myHand.includes(code)) return;
+        const limit = (row === 'top' ? 3 : (row === 'middle' ? 5 : 5));
+        const current = myBoard[row].length + getStagedByRow(row).length;
+        if (current >= limit) { alert(`${row} full`); return; }
+
+        myHand = myHand.filter(c => c !== code);
+        staged.placements.push({ row, card: code });
+        renderHand(); refreshBoard();
+      });
+    }
+    ['zoneTop','zoneMiddle','zoneBottom','zoneDiscard'].forEach(installDrop);
+
+    // Clear staged (put back into hand)
+    $('clearStaged').onclick = () => {
+      const back = [];
+      if (staged.discard) back.push(staged.discard);
+      for (const p of staged.placements) back.push(p.card);
+      myHand = myHand.concat(back);
+      staged = { placements: [], discard: null };
+      renderHand(); refreshBoard();
+    };
+
+    // Ready (send batch)
+    $('ready').onclick = () => {
+      if (!socket) return alert('Connect first');
+      const roomId = $('room').value.trim();
+      if (!roomId) return alert('Enter ROOMID');
+
+      if (currentPhase === 'initial-set') {
+        if (myHand.length > 0) {
+          alert('Place all 5 initial cards before Ready.');
+          return;
+        }
+      } else if (currentPhase === 'round') {
+        // must place exactly 2 of the 3 new cards; leftover auto-discarded
+        const placedFromBatch = staged.placements.filter(p => lastBatch.includes(p.card)).length;
+        if (placedFromBatch !== 2) { alert('Place exactly 2 of the 3 new cards.'); return; }
+        if (!staged.discard) {
+          const leftover = lastBatch.filter(c => !staged.placements.some(p => p.card === c));
+          if (leftover.length !== 1) { alert('Could not auto-discard. Clear staged and try again.'); return; }
+          const [toDiscard] = leftover;
+          const idx = myHand.indexOf(toDiscard);
+          if (idx !== -1) myHand.splice(idx, 1);
+          staged.discard = toDiscard;
+        }
+      }
+
+      // Send to server
+      socket.emit("action:ready", { roomId, placements: staged.placements, discard: staged.discard });
+
+      // Optimistic commit: move staged into committed, save discard
+      for (const p of staged.placements) myBoard[p.row].push(p.card);
+      if (staged.discard) myDiscards.push(staged.discard);
+      staged = { placements: [], discard: null };
+      renderHand(); refreshBoard();
+    };
+
+    // ---------- OTP / JWT ----------
+    $('sendOtp').onclick = async () => {
+      const phone = $('phone').value.trim();
+      if (!phone) return alert("Enter phone like +61000000000");
+      try {
+        const r = await fetch('/auth/send-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ phone }) });
+        const j = await r.json(); if (!r.ok) throw new Error(j.error||'send-otp failed');
+        log(`OTP sent (check server console): ${phone}`);
+      } catch(e){ log('[ERR] '+e.message); }
+    };
+    $('verifyOtp').onclick = async () => {
+      const phone = $('phone').value.trim();
+      const code = $('otp').value.trim();
+      if(!phone||!code) return alert("Enter phone and code");
+      try {
+        const r = await fetch('/auth/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ phone, code }) });
+        const txt = await r.text(); let j; try{ j=JSON.parse(txt);}catch{j=null;}
+        if(!r.ok){ log(`[ERR] verify failed ${r.status}: ${txt}`); alert(`Verify failed: ${j?.error||txt}`); return; }
+        if(!j?.token){ log('[ERR] verify response missing token: '+txt); alert('Verify ok but no token'); return; }
+        $('token').value = j.token;
+        log(`JWT ready for ${phone}: ${j.userId}`); log(`TOKEN: ${j.token}`);
+      } catch(e){ log('[ERR] '+e.message); }
+    };
+
+    // ---------- Reveal helpers ----------
+    function tinyCardsDiv(cards) {
+      const d = document.createElement('div');
+      cards.forEach(c => d.appendChild(cardEl(c)));
+      return d;
+    }
+
+    function boardBlock(title, board, valid, reason) {
+      const wrap = document.createElement('div');
+      wrap.className = 'reveal-board';
+      const h = document.createElement('div');
+      h.innerHTML = `<strong>${title}</strong> ${valid ? '' : `<span class="rubric">[FOUL: ${reason}]</span>`}`;
+      wrap.appendChild(h);
+
+      const tbl = document.createElement('table');
+      const tb = document.createElement('tbody');
+
+      const trTop = document.createElement('tr');
+      const trMid = document.createElement('tr');
+      const trBot = document.createElement('tr');
+
+      trTop.innerHTML = `<td>Top</td><td></td>`;
+      trMid.innerHTML = `<td>Middle</td><td></td>`;
+      trBot.innerHTML = `<td>Bottom</td><td></td>`;
+
+      trTop.children[1].appendChild(tinyCardsDiv(board.top));
+      trMid.children[1].appendChild(tinyCardsDiv(board.middle));
+      trBot.children[1].appendChild(tinyCardsDiv(board.bottom));
+
+      tb.appendChild(trTop); tb.appendChild(trMid); tb.appendChild(trBot);
+      tbl.appendChild(tb);
+      wrap.appendChild(tbl);
+      return wrap;
+    }
+
+    function renderScoreboard(namesById) {
+      const tbody = $('scoreboard').querySelector('tbody');
+      tbody.innerHTML = '';
+      [...totals.entries()].sort((a,b)=> (b[1]-a[1])).forEach(([uid, score]) => {
+        const tr = document.createElement('tr');
+        const tdN = document.createElement('td'); tdN.textContent = namesById.get(uid) || uid.slice(0,8);
+        const tdS = document.createElement('td'); tdS.textContent = String(score);
+        tr.appendChild(tdN); tr.appendChild(tdS);
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderRevealPanel(meId, payload) {
+      const names = new Map();
+      for (const b of payload.boards) names.set(b.userId, b.name);
+
+      // Roll running totals
+      for (const [uid, roundPts] of Object.entries(payload.results || {})) {
+        totals.set(uid, (totals.get(uid) || 0) + roundPts);
+      }
+      renderScoreboard(names);
+
+      // Build panel: show all boards, then my pairwise breakdowns
+      const panel = $('revealPanel');
+      panel.innerHTML = '';
+
+      // Show all boards (mine first)
+      const mineFirst = [...payload.boards].sort((a,b) => (a.userId===meId? -1 : b.userId===meId? 1 : 0));
+      mineFirst.forEach(b => {
+        panel.appendChild(boardBlock(`${b.name}`, b.board, b.valid, b.reason));
+      });
+
+      // My pairwise breakdowns
+      const myPairs = (payload.pairwise || []).filter(p => p.aUserId === meId || p.bUserId === meId);
+      if (myPairs.length) {
+        const header = document.createElement('div');
+        header.innerHTML = `<div style="margin-top:10px;"><strong>Score breakdown</strong></div>`;
+        panel.appendChild(header);
+      }
+
+      myPairs.forEach(p => {
+        const mine = (p.aUserId === meId) ? p.a : p.b;
+        const opp  = (p.aUserId === meId) ? p.b : p.a;
+        const oppId = (p.aUserId === meId) ? p.bUserId : p.aUserId;
+
+        const section = document.createElement('div');
+        section.innerHTML = `
+          <div style="margin-top:6px;margin-bottom:4px;"><strong>Vs ${names.get(oppId) || oppId.slice(0,8)}</strong></div>
+          <table>
+            <thead><tr><th>Line</th><th>Points</th></tr></thead>
+            <tbody>
+              <tr><td>Top</td><td>${mine.lines.top > 0 ? '+' : ''}${mine.lines.top}</td></tr>
+              <tr><td>Middle</td><td>${mine.lines.middle > 0 ? '+' : ''}${mine.lines.middle}</td></tr>
+              <tr><td>Bottom</td><td>${mine.lines.bottom > 0 ? '+' : ''}${mine.lines.bottom}</td></tr>
+              <tr><td>Scoop</td><td>${mine.scoop > 0 ? '+' : ''}${mine.scoop}</td></tr>
+              <tr><td>Royalties</td><td>${mine.royalties > 0 ? '+' : ''}${mine.royalties}</td></tr>
+              <tr><td><strong>Total</strong></td><td><strong>${mine.total > 0 ? '+' : ''}${mine.total}</strong></td></tr>
+            </tbody>
+          </table>
+        `;
+        panel.appendChild(section);
+      });
+    }
+
+    // ---------- Socket wiring ----------
+    $('connect').onclick = () => {
+      const token = $('token').value.trim();
+      if (!token) return alert('Paste a JWT first.');
+      socket = io("/", { auth: { token } });
+
+      socket.on('connect', () => {
+        setConn('connected'); log('connected '+socket.id);
+        myHand=[]; myBoard={ top:[], middle:[], bottom:[] }; myDiscards=[]; staged={ placements:[], discard:null }; lastBatch=[];
+        totals.clear();
+        renderHand(); refreshBoard(); $('revealPanel').textContent = '—';
+      });
+      socket.on('disconnect', () => { setConn('disconnected'); setPhase('—'); setRoomLabel('—'); log('disconnected'); });
+
+      socket.on("auth:ok", (x) => {
+        log("auth ok " + JSON.stringify(x));
+        if (x?.userId) myUserId = x.userId;
+      });
+
+      socket.on("round:start", ({ round }) => {
+        myBoard = { top:[], middle:[], bottom:[] };
+        myDiscards = [];
+        staged = { placements:[], discard:null };
+        lastBatch = [];
+        $('revealPanel').textContent = '—';
+        renderHand(); refreshBoard();
+        log("START round " + round);
+      });
+
+      socket.on("room:create", ({ roomId }) => {
+        $('room').value = roomId; setRoomLabel(roomId); log("created room " + roomId);
+        const name = $('name').value.trim() || 'Player';
+        socket.emit("room:join", { roomId, name });
+      });
+
+      socket.on("room:state", (s) => {
+        setPhase(s.phase); setRoomLabel(s.roomId||'—');
+        log("STATE\n" + JSON.stringify(s, null, 2));
+      });
+
+      socket.on("round:deal", ({ cards }) => {
+        lastBatch = cards.slice();
+        myHand = myHand.concat(cards);
+        renderHand();
+        log("DEAL " + JSON.stringify(cards));
+      });
+
+      socket.on("round:reveal", (payload) => {
+        log("REVEAL\n" + JSON.stringify(payload, null, 2));
+        if (myUserId) renderRevealPanel(myUserId, payload);
+      });
+
+      socket.on("error:msg", (e) => log("ERROR " + e.message));
+    };
+
+    // Room buttons
+    $('create').onclick = () => { if (!socket) return alert('Connect first'); socket.emit("room:create"); };
+    $('join').onclick = () => {
+      if (!socket) return alert('Connect first');
+      const roomId = $('room').value.trim();
+      const name = $('name').value.trim() || 'Player';
+      if (!roomId) return alert('Enter ROOMID');
+      socket.emit("room:join", { roomId, name });
+    };
+    $('start').onclick = () => {
+      if (!socket) return alert('Connect first');
+      const roomId = $('room').value.trim();
+      if (!roomId) return alert('Enter ROOMID');
+      socket.emit("round:start", { roomId });
+    };
+  </script>
+</body>
+</html>

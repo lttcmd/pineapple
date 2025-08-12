@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Login – Enter Code</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#0f1115; color:#e7e8ea; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .card { width:min(420px, 92vw); background:#131827; border:1px solid #283048; border-radius:14px; padding:22px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+    h1 { margin:0 0 12px; font-size:20px; font-weight:700; }
+    .muted { color:#9aa3b2; font-size:12px; margin: 4px 0 12px; }
+    label { display:block; font-size:13px; color:#9aa3b2; margin-bottom:6px; }
+    input[type=text] { width:100%; letter-spacing: .3em; text-align:center; font-size:22px; padding:12px 14px; border-radius:10px; border:1px solid #2a3244; background:#0f1526; color:#e7e8ea; }
+    button { width:100%; margin-top:14px; padding:12px 14px; border-radius:10px; border:1px solid #2a3244; background:#1f2a44; color:#e7e8ea; cursor:pointer; }
+    button:hover { border-color:#3b455f; }
+    .link { color:#7ee787; text-decoration:underline; cursor:pointer; }
+    .err { color:#ff6b6b; font-size:13px; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Enter code</h1>
+    <div class="muted">
+      We sent a 6-digit code to
+      <span id="phoneLabel"></span>.
+      <span class="link" id="change">change</span>
+    </div>
+
+    <label>6-digit code</label>
+    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" />
+    <button id="verify">Log in</button>
+    <div id="msg" class="err"></div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const phone = sessionStorage.getItem('ofc_phone') || '';
+    $('phoneLabel').textContent = phone || '(unknown)';
+    $('change').onclick = () => window.location.href = '/auth/phone.html';
+
+    $('verify').onclick = async () => {
+      const code = $('code').value.trim();
+      if (!phone) { $('msg').textContent = 'Missing phone; go back.'; return; }
+      if (!code) { $('msg').textContent = 'Enter the code.'; return; }
+      try {
+        const r = await fetch('/auth/verify', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ phone, code })
+        });
+        const j = await r.json();
+        if (!r.ok || !j.token) throw new Error(j.error || 'Verify failed');
+
+        // store for later pages
+        localStorage.setItem('ofc_jwt', j.token);
+        localStorage.setItem('ofc_userId', j.userId);
+        localStorage.setItem('ofc_phone', phone);
+
+        // next step: lobby (we create it in step 2)
+        window.location.href = '/lobby.html';
+      } catch (e) {
+        $('msg').textContent = e.message;
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+{
+  "players": {
+    "min": 2,
+    "max": 5
+  },
+  "layout": {
+    "top": 3,
+    "middle": 5,
+    "bottom": 5
+  },
+  "deal": {
+    "initialSetCount": 5,
+    "rounds": 4,
+    "cardsPerRound": 3,
+    "placeCountPerRound": 2
+  },
+  "scoring": {
+    "rowWin": 1,
+    "scoopBonus": 3,
+    "foulPenalty": 6,
+    "pushesAllowed": true
+  },
+  "royalties": {
+    "top": {
+      "pairs": {
+        "66": 1,
+        "77": 2,
+        "88": 3,
+        "99": 4,
+        "TT": 5,
+        "JJ": 6,
+        "QQ": 7,
+        "KK": 8,
+        "AA": 9
+      },
+      "trips": {
+        "222": 10,
+        "333": 11,
+        "444": 12,
+        "555": 13,
+        "666": 14,
+        "777": 15,
+        "888": 16,
+        "999": 17,
+        "TTT": 18,
+        "JJJ": 19,
+        "QQQ": 20,
+        "KKK": 21,
+        "AAA": 22
+      }
+    },
+    "middle": {
+      "trips": 2,
+      "straight": 4,
+      "flush": 8,
+      "full_house": 12,
+      "quads": 20,
+      "straight_flush": 30,
+      "royal_flush": 50
+    },
+    "bottom": {
+      "straight": 2,
+      "flush": 4,
+      "full_house": 6,
+      "quads": 10,
+      "straight_flush": 15,
+      "royal_flush": 25
+    }
+  },
+  "fantasyland": {
+    "enabled": true,
+    "enter": {
+      "topPairAtLeast": "QQ",
+      "topTripsOrBetter": true,
+      "noFoulRequired": true
+    },
+    "continue": {
+      "top": "trips", 
+      "middle": "quads_or_better",
+      "bottom": "straight_flush_or_better"
+    },
+    "handSize": 14
+  }
+}
